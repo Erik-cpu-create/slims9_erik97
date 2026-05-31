@@ -86,7 +86,7 @@ if (isset($_POST['updateRecordID']) && isset($_POST['disable2fa']) && isset($_GE
     $uid = (int)utility::filterData('updateRecordID', 'post', true, true, true);
     $arr = explode(':', $uid);
     if ($_SESSION['uid'] == 1 || $uid == $_SESSION['uid']) {
-        $update = $dbs->query(sprintf("update user set 2fa = null where user_id = '%s'", $uid));
+        $update = DB::query("UPDATE user SET 2fa = NULL WHERE user_id = ?", [$uid]);
         if ($update) {
             echo '<script type="text/javascript">parent.$(\'#mainContent\').simbioAJAX(parent.$.ajaxHistory[0].url);</script>';
             toastr(__('Two-factor authentication has been disabled.'))->success();
@@ -101,13 +101,12 @@ if (isset($_POST['updateRecordID']) && isset($_POST['disable2fa']) && isset($_GE
 
 /* REMOVE IMAGE */
 if (isset($_POST['removeImage']) && isset($_POST['uimg']) && isset($_POST['img'])) {
-  // validate post image
-  $user_id = $_SESSION['uid'] > 1 ? $_SESSION['uid'] : utility::filterData('uimg', 'post', true, true, true);
+  $user_id = utility::filterData('uimg', 'post', true, true, true);
   $image_name = utility::filterData('img', 'post', true, true, true);
 
-  $query_image = $dbs->query("SELECT user_id FROM user WHERE user_id='{$user_id}' AND user_image='{$image_name}'");
-  if ($query_image->num_rows > 0) {
-    $_delete = $dbs->query(sprintf('UPDATE user SET user_image=NULL WHERE user_id=%d', $_POST['uimg']));
+  $query_image = DB::query("SELECT user_id FROM user WHERE user_id=? AND user_image=?", [$user_id, $image_name]);
+  if ($query_image->count() > 0) {
+    $_delete = DB::query('UPDATE user SET user_image=NULL WHERE user_id=?', [(int)$_POST['uimg']]);
     if ($_delete) {
       // Change upict
       $_SESSION['upict'] = 'person.png';
@@ -168,10 +167,11 @@ if (isset($_POST['saveData'])) { //echo '<pre>'; var_dump($_SESSION); echo '</pr
         }
         if (($passwd1 AND $passwd2) AND ($passwd1 === $passwd2)) {
             if ( (isset($_GET['changecurrent'])) AND ($_GET['changecurrent']='true') ) {
-                $old_passwd = $dbs->escape_string(trim($_POST['old_passwd']));
-                $up_q = $dbs->query('SELECT passwd FROM user WHERE user_id='.$_SESSION['uid']);
-                $up_d = $up_q->fetch_row();
-                if (password_verify($old_passwd, $up_d[0])) {
+                $old_passwd = trim($_POST['old_passwd']);
+                // Use prepared statement to prevent SQL injection
+                $up_q = DB::query('SELECT passwd FROM user WHERE user_id=?', [$_SESSION['uid']]);
+                $up_d = $up_q->first();
+                if ($up_d && password_verify($old_passwd, $up_d['passwd'])) {
                     $data['passwd'] = password_hash($passwd2, PASSWORD_BCRYPT);
                 } else {
                     toastr(__('Password change failed. Make sure you input the old password.'))->error();
@@ -291,14 +291,15 @@ if (isset($_POST['saveData'])) { //echo '<pre>'; var_dump($_SESSION); echo '</pr
     // loop array
     foreach ($_POST['itemID'] as $itemID) {
         $itemID = (integer)$itemID;
-        // get user data
-        $user_q = $dbs->query('SELECT username, realname FROM user WHERE user_id='.$itemID);
-        $user_d = $user_q->fetch_row();
-        if (!$sql_op->delete('user', "user_id='$itemID'")) {
+        // get user data using prepared statement
+        $user_q = DB::query('SELECT username, realname FROM user WHERE user_id=?', [$itemID]);
+        if ($user_q->count() < 1) continue;
+        $user_d = $user_q->first();
+        if (!$sql_op->delete('user', "user_id=$itemID")) {
             $error_num++;
         } else {
             // write log
-            writeLog('staff', $_SESSION['uid'], 'system', $_SESSION['realname'].' DELETE user ('.$user_d[1].') with username ('.$user_d[0].')', 'User', 'Delete');
+            writeLog('staff', $_SESSION['uid'], 'system', $_SESSION['realname'].' DELETE user ('.$user_d['realname'].') with username ('.$user_d['username'].')', 'User', 'Delete');
         }
     }
 

@@ -56,8 +56,24 @@ if($_SESSION['uid'] != 1){
 /* DOWNLOAD OPERATION */
 if(isset($_GET['action']) && isset($_GET['id']) && $_GET['action'] == 'download'){
   $id = utility::filterData('id', 'get', true, true, true);
-  $_q = $dbs->query("SELECT backup_file FROM backup_log WHERE backup_log_id=".$id);
-  $path = $_q->fetch_row()[0];
+  // Use prepared statement to prevent SQL injection
+  $stmt = $dbs->prepare("SELECT backup_file FROM backup_log WHERE backup_log_id=?");
+  $stmt->bind_param('i', $id);
+  $stmt->execute();
+  $result = $stmt->get_result();
+  $row = $result->fetch_row();
+  if (!$row) {
+    die('<div class="errorBox">'.__('Backup file not found').'</div>');
+  }
+  $path = $row[0];
+  
+  // Validate that the file path is within the backup directory to prevent IDOR
+  $backup_dir_real = realpath($sysconf['backup_dir']);
+  $file_real = realpath($path);
+  if ($file_real === false || strpos($file_real, $backup_dir_real) !== 0) {
+    die('<div class="errorBox">'.__('Invalid backup file path').'</div>');
+  }
+  
   if(file_exists($path)){
     header("Pragma: public");
     header("Expires: 0");
@@ -95,15 +111,25 @@ if (isset($_POST['itemID']) AND !empty($_POST['itemID']) AND isset($_POST['itemA
 
     $error_num = 0;
     foreach ($_POST['itemID'] as $itemID) {
-      //delete file
-      $_q = $dbs->query("SELECT backup_file FROM backup_log WHERE backup_log_id=".$itemID);
-      $file = $_q->fetch_row()[0];
-      if(file_exists($file)){
-         @unlink($file);
-      } 
-      //delete record
+      // Use prepared statement to prevent SQL injection
+      $stmt = $dbs->prepare("SELECT backup_file FROM backup_log WHERE backup_log_id=?");
+      $stmt->bind_param('i', $itemID);
+      $stmt->execute();
+      $result = $stmt->get_result();
+      $row = $result->fetch_row();
+      if ($row) {
+        $file = $row[0];
+        // Validate that the file path is within the backup directory
+        $backup_dir_real = realpath($sysconf['backup_dir']);
+        $file_real = realpath($file);
+        if ($file_real !== false && strpos($file_real, $backup_dir_real) === 0 && file_exists($file)) {
+           @unlink($file);
+        }
+      }
+      //delete record using prepared statement
       $sql_op = new simbio_dbop($dbs);
-      if (!$sql_op->delete('backup_log', "backup_log_id=$itemID")) {
+      $itemID_esc = (int)$itemID;
+      if (!$sql_op->delete('backup_log', "backup_log_id=$itemID_esc")) {
         $error_num++;
       }
     }
@@ -202,8 +228,11 @@ if (!$can_write) $datagrid->invisible_fields = [0];
 
 // is there any search
 if (isset($_GET['keywords']) AND $_GET['keywords']) {
-   $keywords = $dbs->escape_string($_GET['keywords']);
-   $datagrid->setSQLCriteria("bl.backup_time LIKE '%$keywords%' OR bl.backup_file LIKE '%$keywords%'");
+   $keywords = utility::filterData('keywords', 'get', true, true, true);
+   // Use htmlspecialchars to prevent XSS when displaying keywords
+   $keywords_escaped = htmlspecialchars($keywords, ENT_QUOTES, 'UTF-8');
+   $keywords_db = $dbs->escape_string($keywords);
+   $datagrid->setSQLCriteria("bl.backup_time LIKE '%$keywords_db%' OR bl.backup_file LIKE '%$keywords_db%'");
 }
 // set table and table header attributes
 $datagrid->table_attr = 'id="dataList" class="s-table table"';
@@ -231,7 +260,8 @@ $datagrid_result = $datagrid->createDataGrid($dbs, $table_spec, 20,($can_read AN
 
 if (isset($_GET['keywords']) AND $_GET['keywords']) {
     $msg = str_replace('{result->num_rows}', $datagrid->num_rows, __('Found <strong>{result->num_rows}</strong> from your keywords')); //mfc
-    echo '<div class="infoBox">'.$msg.' : "'.$_GET['keywords'].'"</div>';
+    // Use htmlspecialchars to prevent XSS when displaying user input
+    echo '<div class="infoBox">'.$msg.' : "'.htmlspecialchars($keywords, ENT_QUOTES, 'UTF-8').'"</div>';
 }
 
 echo $datagrid_result;

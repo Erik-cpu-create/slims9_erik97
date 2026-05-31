@@ -112,11 +112,13 @@ if (isset($_POST['start']) && isset($_POST['tkn']) && $_POST['tkn'] === $_SESSIO
                 $curr_dir = getcwd();
                 // change current PHP working dir
                 @chdir($sysconf['backup_dir']);
-                // compress the backup using tar gz
+                // compress the backup using tar gz with escapeshellarg to prevent command injection
                 if(function_exists('exec')){
                     outputWithFlush(color(__('Compressing...')));
                     sleep(1);
-                    exec('tar cvzf backup_'.$time2append.'.sql.tar.gz backup_'.$time2append.'.sql', $outputs, $status);
+                    $sql_file = escapeshellarg('backup_'.$time2append.'.sql');
+                    $tar_file = escapeshellarg('backup_'.$time2append.'.sql.tar.gz');
+                    exec('tar cvzf ' . $tar_file . ' ' . $sql_file, $outputs, $status);
                     if ($status == COMMAND_SUCCESS) {
                         // delete the original file
                         @unlink($data['backup_file']);
