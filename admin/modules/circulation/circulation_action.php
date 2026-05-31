@@ -49,18 +49,19 @@ function visitOnLoan($member_id)
 {
     global $dbs;
     $now = date('Y-m-d');
-    // check if already checkin
-    $query = $dbs->query('SELECT visitor_id FROM visitor_count WHERE member_id=\''.$member_id.'\' AND checkin_date LIKE \''.$now.'%\'');
-    if ($query->num_rows < 1) {
-        // get data
-        $mquery = $dbs->query('SELECT member_name, inst_name FROM member WHERE member_id=\''.$member_id.'\'');
-        $mdata = $mquery->fetch_row();
-        $member_name = $dbs->escape_string($mdata[0]);
-        $institution = $mdata[1];
-        // insert visit
+    // check if already checkin using prepared statement
+    $query = DB::query('SELECT visitor_id FROM visitor_count WHERE member_id=? AND checkin_date LIKE ?', [$member_id, $now.'%']);
+    if ($query->count() < 1) {
+        // get data using prepared statement
+        $mquery = DB::query('SELECT member_name, inst_name FROM member WHERE member_id=?', [$member_id]);
+        if ($mquery->count() < 1) return false;
+        $mdata = $mquery->first();
+        $member_name = $mdata['member_name'];
+        $institution = $mdata['inst_name'];
+        // insert visit using prepared statement
         $checkin_date  = date('Y-m-d H:i:s');
-        $insert = $dbs->query("INSERT INTO visitor_count (member_id, member_name, institution, checkin_date) VALUES ('$member_id', '$member_name', '$institution', '$checkin_date')");
-        if (!$insert) {
+        $insert = DB::query("INSERT INTO visitor_count (member_id, member_name, institution, checkin_date) VALUES (?, ?, ?, ?)", [$member_id, $member_name, $institution, $checkin_date]);
+        if (!$insert->isAffected()) {
             toastr(__('ERROR! Can\'t insert visitor counter data'))->error();
             return false;
         }
@@ -111,9 +112,13 @@ if (isset($_POST['finish'])) {
 if (isset($_POST['process']) AND isset($_POST['loanID'])) {
     $loanID = intval($_POST['loanID']);
     if ($loanID > 0) {
-        // get loan data
-        $loan_q = $dbs->query('SELECT item_code FROM loan WHERE loan_id='.$loanID);
-        $loan_d = $loan_q->fetch_row();
+        // get loan data using prepared statement
+        $loan_q = DB::query('SELECT item_code FROM loan WHERE loan_id=?', [$loanID]);
+        if ($loan_q->count() < 1) {
+            toastr(__('Loan record not found'))->error();
+            exit();
+        }
+        $loan_d = $loan_q->first();
         // create circulation object
         $circulation = new circulation($dbs, $dbs->escape_string($_SESSION['memberID']));
         $circulation->ignore_holidays_fine_calc = $sysconf['ignore_holidays_fine_calc'];
@@ -122,7 +127,7 @@ if (isset($_POST['process']) AND isset($_POST['loanID'])) {
         if ($_POST['process'] == 'return') {
             $return_status = $circulation->returnItem($loanID);
             // write log
-            writeLog('member', $dbs->escape_string($_SESSION['memberID']), 'circulation', $dbs->escape_string($_SESSION['realname']).' return item '.$loan_d[0].' for member ('.$dbs->escape_string($_SESSION['memberID']).')', 'Loan', 'Return');
+            writeLog('member', $dbs->escape_string($_SESSION['memberID']), 'circulation', $dbs->escape_string($_SESSION['realname']).' return item '.$loan_d['item_code'].' for member ('.$dbs->escape_string($_SESSION['memberID']).')', 'Loan', 'Return');
             if ($circulation->loan_have_overdue) {
                 toastr(__('Overdue fines inserted to fines database'))->success();
             }
@@ -145,7 +150,7 @@ if (isset($_POST['process']) AND isset($_POST['loanID'])) {
                 echo '</script>';
             } else {
                 // write log
-                writeLog('member', $dbs->escape_string($_SESSION['memberID']), 'circulation', $dbs->escape_string($_SESSION['realname']).' extend loan for item '.$loan_d[0].' for member ('.$dbs->escape_string($_SESSION['memberID']).')', 'Loan', 'Extended');
+                writeLog('member', $dbs->escape_string($_SESSION['memberID']), 'circulation', $dbs->escape_string($_SESSION['realname']).' extend loan for item '.$loan_d['item_code'].' for member ('.$dbs->escape_string($_SESSION['memberID']).')', 'Loan', 'Extended');
                 toastr(__('Loan Extended'))->success();
                 if ($circulation->loan_have_overdue) {
                     toastr(__('Overdue fines inserted to fines database'))->success();

@@ -59,14 +59,7 @@ class Native extends Contract
         // verify password hash
         $verified = password_verify($this->password, $this->data['mpasswd'] ?? '');
         if (!$verified) {
-            //check if md5
-            if ($this->data['mpasswd'] == md5($this->password)) {
-                $update_password = DB::query("UPDATE member SET mpasswd = ?, last_update = CURDATE() WHERE member_id = ?", [password_hash($this->password, PASSWORD_BCRYPT), $this->username]);
-                // error check
-                if (!$update_password->isAffected()) throw new Exception(__('Failed to query user data from database with error: ') . $update_password->getError(), 500);
-            } else {
-                throw new Exception(__('Username or Password not exists in database!'), 404);
-            }
+            throw new Exception(__('Username or Password not exists in database!'), 404);
         }
 
         $this->setMemberData();
@@ -99,13 +92,7 @@ class Native extends Contract
         // verify password hash
         $verified = password_verify($this->password, $this->data['passwd']);
         if (!$verified) {
-            // MD5 wrong password
-            if (md5($this->password) !== $this->data['passwd']) throw new Exception("Wrong Password", 401);
-
-            // maybe still use md5 encryption
-            $newPasswd = password_hash($this->password, PASSWORD_BCRYPT);
-            $update_passwd = DB::query('UPDATE `user` SET `passwd` = ?, `last_update` = CURRENT_DATE() WHERE `user_id` = ?', [$newPasswd, $this->data['uid']]);
-            if (!$update_passwd->isAffected()) throw new Exception(__('Failed to update user password with hash'), 500);
+            throw new Exception("Wrong Password", 401);
         }
 
         $this->setAdminData();
